@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import torch
 from torch import nn
@@ -14,9 +14,51 @@ from ..modules.decoder_layer import DecoderLayer
 from ..modules.embedding import Embedding
 from ..modules.gated_mlp import GatedMLP
 from ..modules.linear import TensorParallelMode
-from ..modules.rms_norm import RMSNorm
 from ..pipeline_interface import PipelineInterface
 from .modeling_utils import (DecoderModel, DecoderModelForCausalLM, register_auto_model)
+
+
+class Qwen3RMSNorm(nn.Module):
+
+    def __init__(self,
+                 *,
+                 hidden_size: int,
+                 eps: float,
+                 dtype: Optional[torch.dtype] = None,
+                 device: Optional[torch.device] = None,
+                 has_weights: bool = True):
+        super().__init__()
+        if has_weights:
+            self.weight = nn.Parameter(
+                torch.ones(hidden_size, dtype=dtype, device=device))
+        else:
+            self.register_buffer('weight',
+                                 torch.ones(hidden_size,
+                                            dtype=dtype,
+                                            device=device),
+                                 persistent=False)
+        self.variance_epsilon = eps
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        residual: Optional[torch.Tensor] = ...,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        
+        input_dtype = hidden_states.dtype
+        hidden_states = hidden_states.to(torch.float32)
+        if isinstance(residual, torch.Tensor):
+            hidden_states = hidden_states + residual.to(torch.float32)
+            residual = hidden_states.to(input_dtype)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance +
+                                                    self.variance_epsilon)
+        hidden_states = (self.weight * hidden_states).to(input_dtype)
+
+        if residual is ...:
+            return hidden_states
+        else:
+            return hidden_states, residual
 
 
 class Qwen3Attention(Attention):
@@ -52,8 +94,8 @@ class Qwen3Attention(Attention):
             config=model_config,
         )
 
-        self.q_norm = RMSNorm(hidden_size=self.head_dim, eps=config.rms_norm_eps)
-        self.k_norm = RMSNorm(hidden_size=self.head_dim, eps=config.rms_norm_eps)
+        self.q_norm = Qwen3RMSNorm(hidden_size=self.head_dim, eps=config.rms_norm_eps)
+        self.k_norm = Qwen3RMSNorm(hidden_size=self.head_dim, eps=config.rms_norm_eps)
 
 
 class Qwen3DecoderLayer(DecoderLayer):
@@ -78,9 +120,9 @@ class Qwen3DecoderLayer(DecoderLayer):
             dtype=config.torch_dtype,
             config=model_config,
         )
-        self.input_layernorm = RMSNorm(hidden_size=config.hidden_size,
+        self.input_layernorm = Qwen3RMSNorm(hidden_size=config.hidden_size,
                                        eps=config.rms_norm_eps)
-        self.post_attention_layernorm = RMSNorm(hidden_size=config.hidden_size,
+        self.post_attention_layernorm = Qwen3RMSNorm(hidden_size=config.hidden_size,
                                                 eps=config.rms_norm_eps)
 
     def forward(
@@ -136,7 +178,7 @@ class Qwen3Model(DecoderModel):
                 layer_idx,
             ) for layer_idx in range(config.pretrained_config.num_hidden_layers)
         ])
-        self.norm = RMSNorm(hidden_size=config.pretrained_config.hidden_size,
+        self.norm = Qwen3RMSNorm(hidden_size=config.pretrained_config.hidden_size,
                             eps=config.pretrained_config.rms_norm_eps)
 
     def forward(
