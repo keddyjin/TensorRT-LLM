@@ -14,6 +14,7 @@ from ..modules.decoder_layer import DecoderLayer
 from ..modules.embedding import Embedding
 from ..modules.gated_mlp import GatedMLP
 from ..modules.linear import TensorParallelMode
+from ..modules.rms_norm import RMSNorm
 from ..pipeline_interface import PipelineInterface
 from .modeling_utils import (DecoderModel, DecoderModelForCausalLM, register_auto_model)
 
@@ -120,10 +121,12 @@ class Qwen3DecoderLayer(DecoderLayer):
             dtype=config.torch_dtype,
             config=model_config,
         )
-        self.input_layernorm = Qwen3RMSNorm(hidden_size=config.hidden_size,
-                                       eps=config.rms_norm_eps)
-        self.post_attention_layernorm = Qwen3RMSNorm(hidden_size=config.hidden_size,
-                                                eps=config.rms_norm_eps)
+        self.input_layernorm = RMSNorm(hidden_size=config.hidden_size,
+                                       eps=config.rms_norm_eps,
+                                       dtype=config.torch_dtype)
+        self.post_attention_layernorm = RMSNorm(hidden_size=config.hidden_size,
+                                                eps=config.rms_norm_eps,
+                                                dtype=config.torch_dtype)
 
     def forward(
         self,
@@ -178,8 +181,9 @@ class Qwen3Model(DecoderModel):
                 layer_idx,
             ) for layer_idx in range(config.pretrained_config.num_hidden_layers)
         ])
-        self.norm = Qwen3RMSNorm(hidden_size=config.pretrained_config.hidden_size,
-                            eps=config.pretrained_config.rms_norm_eps)
+        self.norm = RMSNorm(hidden_size=config.pretrained_config.hidden_size,
+                            eps=config.pretrained_config.rms_norm_eps,
+                            dtype=config.pretrained_config.torch_dtype)
 
     def forward(
         self,
