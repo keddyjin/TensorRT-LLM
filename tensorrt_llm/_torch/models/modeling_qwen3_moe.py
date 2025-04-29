@@ -18,7 +18,6 @@ from ..modules.fused_moe import DefaultMoeRoutingMethod, FusedMoE
 from ..modules.linear import Linear, TensorParallelMode
 from ..modules.rms_norm import RMSNorm
 from .modeling_utils import DecoderModel, DecoderModelForCausalLM, duplicate_kv_weight, register_auto_model
-from .modeling_qwen3 import Qwen3RMSNorm
 
 
 class Qwen3MoE(nn.Module):
@@ -33,7 +32,6 @@ class Qwen3MoE(nn.Module):
         self.hidden_dim = config.hidden_size
         self.ffn_dim = config.intermediate_size
         self.moe_intermediate_size = config.moe_intermediate_size
-        self.shared_expert_intermediate_size = config.shared_expert_intermediate_size
         self.num_experts = config.num_experts
         self.top_k = config.num_experts_per_tok
         self.enable_attention_dp = model_config.mapping.enable_attention_dp
@@ -104,8 +102,8 @@ class Qwen3MoEAttention(Attention):
             config=model_config,
         )
 
-        self.q_norm = Qwen3RMSNorm(hidden_size=self.head_dim, eps=config.rms_norm_eps)
-        self.k_norm = Qwen3RMSNorm(hidden_size=self.head_dim, eps=config.rms_norm_eps)
+        self.q_norm = RMSNorm(hidden_size=self.head_dim, eps=config.rms_norm_eps, dtype=config.torch_dtype)
+        self.k_norm = RMSNorm(hidden_size=self.head_dim, eps=config.rms_norm_eps, dtype=config.torch_dtype)
 
 
 class Qwen3MoEDecoderLayer(DecoderLayer):
