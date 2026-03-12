@@ -45,6 +45,13 @@ class Qwen3Attention(QKNormRoPEAttention):
             else:
                 raise ValueError(
                     "rope_scaling must have type or rope_type field")
+            # Note: In some cases (transformers v5.0 or later), the type is "default", which is not supported by PositionEmbeddingType.
+            if pos_type in ["default", "none"]:
+                pos_type = "rope_gpt_neox"
+                if "type" in config.rope_scaling:
+                    config.rope_scaling["type"] = "none"
+                if "rope_type" in config.rope_scaling:
+                    config.rope_scaling["rope_type"] = "none"
             pos_embd_params = PositionalEmbeddingParams(
                 type=PositionEmbeddingType.from_string(pos_type),
                 rope=RopeParams.from_config(config),
